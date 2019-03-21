@@ -10,6 +10,7 @@ package sse
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/julienschmidt/httprouter"
 	"net/http"
 	"strconv"
 )
@@ -203,4 +204,9 @@ func (s *Streamer) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 			fl.Flush()
 		}
 	}
+}
+
+//implements Handle for julienschmidt httprouter
+func (s *Streamer) HandleHTTP(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
+	s.ServeHTTP(w, nil)
 }

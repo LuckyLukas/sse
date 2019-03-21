@@ -172,7 +172,134 @@ func TestHeader(t *testing.T) {
 	}
 }
 
-func TestSendEvent(t *testing.T) {
+func TestSendByte(t *testing.T) {
+	streamer := New()
+	w := NewMockResponseWriteFlushCloser()
+
+	var expected string
+
+	time.Sleep(500 * time.Millisecond)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+
+		streamer.SendBytes("", "empty", nil)
+		expected += "event:empty\ndata:\n\n"
+
+		streamer.SendBytes("", "error", []byte("gnah"))
+		expected += "event:error\ndata:gnah\n\n"
+
+		streamer.SendBytes("", "", []byte("\nline\nbreak\n\n"))
+		expected += "data:\ndata:line\ndata:break\ndata:\ndata:\n\n"
+
+		time.Sleep(500 * time.Millisecond)
+		w.Close()
+	}()
+
+	streamer.ServeHTTP(w, nil)
+
+	if w.status != http.StatusOK {
+		t.Fatal("wrong status code:", w.status)
+	}
+
+	if w.written != expected {
+		t.Fatal("wrong body, got:\n", w.written, "\nexpected:\n", expected)
+	}
+}
+
+func TestSendEventJson(t *testing.T) {
+	streamer := New()
+	w := NewMockResponseWriteFlushCloser()
+
+	var expected string
+
+	time.Sleep(500 * time.Millisecond)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+
+		streamer.SendJSON("", "json", nil)
+		expected += "event:json\ndata:null\n\n"
+
+		streamer.SendJSON("", "json", map[string]string{"test": "successful"})
+		expected += "event:json\ndata:{\"test\":\"successful\"}\n\n"
+
+		time.Sleep(500 * time.Millisecond)
+		w.Close()
+	}()
+
+	streamer.ServeHTTP(w, nil)
+
+	if w.status != http.StatusOK {
+		t.Fatal("wrong status code:", w.status)
+	}
+
+	if w.written != expected {
+		t.Fatal("wrong body, got:\n", w.written, "\nexpected:\n", expected)
+	}
+}
+
+func TestSendUInt(t *testing.T) {
+	streamer := New()
+	w := NewMockResponseWriteFlushCloser()
+
+	var expected string
+
+	time.Sleep(500 * time.Millisecond)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+
+		streamer.SendUint("", "number", math.MaxUint64)
+		expected += "event:number\ndata:" + strconv.FormatUint(math.MaxUint64, 10) + "\n\n"
+
+		time.Sleep(500 * time.Millisecond)
+		w.Close()
+	}()
+
+	streamer.ServeHTTP(w, nil)
+
+	if w.status != http.StatusOK {
+		t.Fatal("wrong status code:", w.status)
+	}
+
+	if w.written != expected {
+		t.Fatal("wrong body, got:\n", w.written, "\nexpected:\n", expected)
+	}
+}
+
+func TestSendInt(t *testing.T) {
+	streamer := New()
+	w := NewMockResponseWriteFlushCloser()
+
+	var expected string
+
+	time.Sleep(500 * time.Millisecond)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+
+		streamer.SendInt("", "number", math.MaxInt64)
+		expected += "event:number\ndata:" + strconv.FormatInt(math.MaxInt64, 10) + "\n\n"
+
+		streamer.SendInt("", "number", math.MinInt64)
+		expected += "event:number\ndata:" + strconv.FormatInt(math.MinInt64, 10) + "\n\n"
+		time.Sleep(500 * time.Millisecond)
+
+		streamer.SendInt("", "number", 5)
+		expected += "event:number\ndata:" + strconv.FormatInt(5, 10) + "\n\n"
+		time.Sleep(500 * time.Millisecond)
+		w.Close()
+	}()
+
+	streamer.ServeHTTP(w, nil)
+
+	if w.status != http.StatusOK {
+		t.Fatal("wrong status code:", w.status)
+	}
+
+	if w.written != expected {
+		t.Fatal("wrong body, got:\n", w.written, "\nexpected:\n", expected)
+	}
+}
+
+func TestSendString(t *testing.T) {
 	streamer := New()
 	w := NewMockResponseWriteFlushCloser()
 
@@ -183,7 +310,7 @@ func TestSendEvent(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 
 		streamer.SendString("", "", "")
-		expected += "data\n\n"
+		expected += "data:\n\n"
 
 		streamer.SendString("", "", "Test")
 		expected += "data:Test\n\n"
@@ -193,27 +320,6 @@ func TestSendEvent(t *testing.T) {
 
 		streamer.SendString("", "string", "multi\nline\n\nyay")
 		expected += "event:string\ndata:multi\ndata:line\ndata:\ndata:yay\n\n"
-
-		streamer.SendBytes("", "empty", nil)
-		expected += "event:empty\ndata\n\n"
-
-		streamer.SendBytes("", "error", []byte("gnah"))
-		expected += "event:error\ndata:gnah\n\n"
-
-		streamer.SendBytes("", "", []byte("\nline\nbreak\n\n"))
-		expected += "data:\ndata:line\ndata:break\ndata:\ndata:\n\n"
-
-		streamer.SendInt("", "number", math.MaxInt64)
-		expected += "event:number\ndata:" + strconv.FormatInt(math.MaxInt64, 10) + "\n\n"
-
-		streamer.SendUint("", "number", math.MaxUint64)
-		expected += "event:number\ndata:" + strconv.FormatUint(math.MaxUint64, 10) + "\n\n"
-
-		streamer.SendJSON("", "json", nil)
-		expected += "event:json\ndata:null\n\n"
-
-		streamer.SendJSON("", "json", map[string]string{"test": "successful"})
-		expected += "event:json\ndata:{\"test\":\"successful\"}\n\n"
 
 		time.Sleep(500 * time.Millisecond)
 		w.Close()

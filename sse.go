@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 type client chan []byte
@@ -75,33 +74,20 @@ func (s *Streamer) BufSize(size uint) {
 }
 
 func format(id, event string, dataLen int) (p []byte) {
-	// calc length
-	l := 6 // data\n\n
-	if len(event) > 0 {
-		l += 6 + len(event) + 1 // event:{event}\n
+	l := 6 + dataLen // data:\n
+	if event != "" {
+		l += 6 + len(event) + 1
 	}
-	if dataLen > 0 {
-		l += 1 + dataLen // :{data}
-	}
-
-	// build
 	p = make([]byte, l)
 	i := 0
-	if len(event) > 0 {
+	if event != "" {
 		copy(p, "event:")
 		i += 6 + copy(p[6:], event)
 		p[i] = '\n'
 		i++
 	}
-	i += copy(p[i:], "data")
-	if dataLen > 0 {
-		p[i] = ':'
-		i += 1 + dataLen
-	}
-	copy(p[i:], "\n\n")
-
-	// TODO: id
-
+	i += copy(p[i:], "data:")
+	copy(p[len(p)-2:], "\n\n")
 	return
 }
 
@@ -109,52 +95,23 @@ func format(id, event string, dataLen int) (p []byte) {
 // as the data value to all connected clients.
 // If the id or event string is empty, no id / event type is send.
 func (s *Streamer) SendBytes(id, event string, data []byte) {
-	dataLen := len(data)
-	lfCount := 0
-
-	// We must sent a "data:{data}\n" for each line
-	if dataLen > 0 {
-		lfCount = bytes.Count(data, []byte("\n"))
-		if lfCount > 0 {
-			dataLen += (5 * lfCount) // data:
-		}
-	}
+	dataLen := len(data)+1
+	lfCount := bytes.Count(data, []byte("\n"))
+	dataLen += (5 * lfCount)
 
 	p := format(id, event, dataLen)
 
-	// fill in data lines
 	start := 0
-	ins := len(p) - (2 + dataLen)
-	for i := 0; lfCount > 0; i++ {
-		if data[i] == '\n' {
-			copy(p[ins:], data[start:i])
-			ins += i - start
-			copy(p[ins:], "\ndata:")
-			ins += 6
+	ins := len(p) - (1 + dataLen)
+	for idx := bytes.IndexByte(data[start:], '\n'); idx != -1; idx = bytes.IndexByte(data[start:], '\n') {
+		copy(p[ins:], data[start:(start+idx)])
+		ins += idx
+		copy(p[ins:], "\ndata:")
+		ins += 6
+		start += idx + 1
 
-			start = i + 1
-			lfCount--
-		}
 	}
 	copy(p[ins:], data[start:])
-
-	s.event <- p
-}
-
-// SendInt sends an event with the given int as the data value to all connected
-// clients.
-// If the id or event string is empty, no id / event type is send.
-func (s *Streamer) SendInt(id, event string, data int64) {
-	const maxIntToStrLen = 20 // '-' + 19 digits
-
-	p := format(id, event, maxIntToStrLen)
-	p = strconv.AppendInt(p[:len(p)-(maxIntToStrLen+2)], data, 10)
-
-	// Re-add \n\n at the end
-	p = p[:len(p)+2]
-	p[len(p)-2] = '\n'
-	p[len(p)-1] = '\n'
-
 	s.event <- p
 }
 
@@ -166,7 +123,7 @@ func (s *Streamer) SendJSON(id, event string, v interface{}) error {
 	if err != nil {
 		return err
 	}
-	p := format(id, event, len(data))
+	p := format(id, event, len(data)+1)
 	copy(p[len(p)-(2+len(data)):], data) // fill in data
 	s.event <- p
 	return nil
@@ -176,34 +133,17 @@ func (s *Streamer) SendJSON(id, event string, v interface{}) error {
 // clients.
 // If the id or event string is empty, no id / event type is send.
 func (s *Streamer) SendString(id, event, data string) {
-	dataLen := len(data)
-	lfCount := 0
+	s.SendBytes(id, event, []byte(data))
+}
 
-	// We must sent a "data:{data}\n" for each line
-	if dataLen > 0 {
-		lfCount = strings.Count(data, "\n")
-		if lfCount > 0 {
-			dataLen += (5 * lfCount) // data:
-		}
-	}
+func (s *Streamer) SendInt(id, event string, data int64) {
+	const maxIntToStrLen = 20 // '-' + 19 digits
 
-	p := format(id, event, dataLen)
+	p := format(id, event, maxIntToStrLen+1)
+	p = strconv.AppendInt(p[:len(p)-(maxIntToStrLen+2)], data, 10)
 
-	// fill in data lines
-	start := 0
-	ins := len(p) - (2 + dataLen)
-	for i := 0; lfCount > 0; i++ {
-		if data[i] == '\n' {
-			copy(p[ins:], data[start:i])
-			ins += i - start
-			copy(p[ins:], "\ndata:")
-			ins += 6
-
-			start = i + 1
-			lfCount--
-		}
-	}
-	copy(p[ins:], data[start:])
+	// Re-add \n\n at the end
+	p = append(p, '\n', '\n')
 
 	s.event <- p
 }
@@ -214,13 +154,11 @@ func (s *Streamer) SendString(id, event, data string) {
 func (s *Streamer) SendUint(id, event string, data uint64) {
 	const maxUintToStrLen = 20
 
-	p := format(id, event, maxUintToStrLen)
+	p := format(id, event, maxUintToStrLen+1)
 	p = strconv.AppendUint(p[:len(p)-(maxUintToStrLen+2)], data, 10)
 
 	// Re-add \n\n at the end
-	p = p[:len(p)+2]
-	p[len(p)-2] = '\n'
-	p[len(p)-1] = '\n'
+	p = append(p, '\n', '\n')
 
 	s.event <- p
 }
@@ -240,7 +178,7 @@ func (s *Streamer) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "Closing not supported", http.StatusNotImplemented)
 		return
 	}
-	close := cn.CloseNotify()
+	closeChannel := cn.CloseNotify()
 
 	// Set headers for SSE
 	h := w.Header()
@@ -254,7 +192,7 @@ func (s *Streamer) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 
 	for {
 		select {
-		case <-close:
+		case <-closeChannel:
 			// Disconnect the client when the connection is closed
 			s.disconnecting <- cl
 			return
